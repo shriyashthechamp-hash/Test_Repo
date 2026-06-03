@@ -105,7 +105,9 @@ interface Props {
 export default function SunflowerCanvas({ env, act, scrollY }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef({
-    sunflowers: [] as SunflowerData[],
+    bgSunflowers: [] as SunflowerData[],
+    midSunflowers: [] as SunflowerData[],
+    fgSunflowers: [] as SunflowerData[],
     particles: [] as Particle[],
     mouse: { x: 0, y: 0 },
     time: 0,
@@ -117,6 +119,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
     frameId: 0,
     width: 0,
     height: 0,
+    scale: 1,
   });
 
   useEffect(() => {
@@ -126,11 +129,13 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
     const s = stateRef.current;
 
     function buildField(w: number, h: number) {
-      s.sunflowers = [];
+      s.bgSunflowers = [];
+      s.midSunflowers = [];
+      s.fgSunflowers = [];
 
       // Background layer: 12 small, minimal parallax
       for (let i = 0; i < 12; i++) {
-        s.sunflowers.push({
+        s.bgSunflowers.push({
           x: (w / 11) * i + (Math.random() - 0.5) * 60,
           baseY: h + 10,
           height: 140 + Math.random() * 80,
@@ -146,7 +151,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
 
       // Midground layer: 10 medium
       for (let i = 0; i < 10; i++) {
-        s.sunflowers.push({
+        s.midSunflowers.push({
           x: (w / 9) * i + (Math.random() - 0.5) * 80,
           baseY: h + 15,
           height: 210 + Math.random() * 120,
@@ -163,7 +168,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       // Foreground layer: 6 large, blurred
       for (let i = 0; i < 6; i++) {
         const side = i < 3 ? -0.15 : 1.15;
-        s.sunflowers.push({
+        s.fgSunflowers.push({
           x: side * w + (Math.random() - 0.5) * 100,
           baseY: h + 20,
           height: 340 + Math.random() * 160,
@@ -200,10 +205,25 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
     function init() {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      canvas.width = w;
-      canvas.height = h;
+      
+      const MAX_RES = 1600;
+      let scale = 1;
+      if (w > MAX_RES || h > MAX_RES) {
+        scale = MAX_RES / Math.max(w, h);
+      }
+      
+      canvas.width = Math.floor(w * scale);
+      canvas.height = Math.floor(h * scale);
+      
       s.width = w;
       s.height = h;
+      s.scale = scale;
+      
+      const ctx = canvas.getContext('2d');
+      if (ctx && scale !== 1) {
+        ctx.scale(scale, scale);
+      }
+      
       buildField(w, h);
       spawnParticles(w, h, ENV_CONFIGS[s.currentEnv].particleType);
     }
@@ -369,10 +389,14 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      // Throttle when tab is hidden to save battery
+      if (document.visibilityState === 'hidden') {
+        s.frameId = requestAnimationFrame(animate);
+        return;
+      }
+
       s.time += 0.02;
       const { width: w, height: h } = s;
-
-      ctx.clearRect(0, 0, w, h);
 
       // Env transition lerp
       if (s.targetEnv !== s.currentEnv) {
@@ -390,24 +414,30 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
 
       // Only draw canvas content in act 2 or 3 (fade in)
       const actAlpha = s.act === 1 ? 0 : s.act === 2 ? 0.7 : 1;
+      
+      // Skip drawing if invisible
+      if (actAlpha === 0) {
+        ctx.clearRect(0, 0, w, h);
+        s.frameId = requestAnimationFrame(animate);
+        return;
+      }
+
+      ctx.clearRect(0, 0, w, h);
       ctx.globalAlpha = actAlpha;
 
-      // Draw layers: bg, mid, fg
-      const layers: Array<'bg' | 'mid' | 'fg'> = ['bg', 'mid', 'fg'];
-      layers.forEach(layer => {
-        s.sunflowers
-          .filter(sf => sf.layer === layer)
-          .forEach(sf => {
-            const blendedCfg = {
-              ...cfg,
-              flowerYellow: lerpColor(prevCfg.flowerYellow, cfg.flowerYellow, envLerpT) || cfg.flowerYellow,
-              flowerCenter: lerpColor(prevCfg.flowerCenter, cfg.flowerCenter, envLerpT) || cfg.flowerCenter,
-              stemColor: lerpColor(prevCfg.stemColor, cfg.stemColor, envLerpT) || cfg.stemColor,
-              petalColor: lerpColor(prevCfg.petalColor, cfg.petalColor, envLerpT) || cfg.petalColor,
-            };
-            drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY);
-          });
-      });
+      // Calculate blended configs once per frame
+      const blendedCfg = {
+        ...cfg,
+        flowerYellow: envLerpT < 1 ? (lerpColor(prevCfg.flowerYellow, cfg.flowerYellow, envLerpT) || cfg.flowerYellow) : cfg.flowerYellow,
+        flowerCenter: envLerpT < 1 ? (lerpColor(prevCfg.flowerCenter, cfg.flowerCenter, envLerpT) || cfg.flowerCenter) : cfg.flowerCenter,
+        stemColor: envLerpT < 1 ? (lerpColor(prevCfg.stemColor, cfg.stemColor, envLerpT) || cfg.stemColor) : cfg.stemColor,
+        petalColor: envLerpT < 1 ? (lerpColor(prevCfg.petalColor, cfg.petalColor, envLerpT) || cfg.petalColor) : cfg.petalColor,
+      };
+
+      // Draw layers: bg, mid, fg directly
+      s.bgSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY));
+      s.midSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY));
+      s.fgSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY));
 
       // Particles
       if (s.act >= 2) {
