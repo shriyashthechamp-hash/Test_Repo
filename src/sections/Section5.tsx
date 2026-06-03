@@ -51,7 +51,6 @@ export default function Section5() {
   const [shake, setShake] = useState(false);
   const [typedLetter, setTypedLetter] = useState('');
   const [typingDone, setTypingDone] = useState(false);
-  const [easterVisible, setEasterVisible] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const letterText = "Dear Aaashi, I tried writing this. I really did. But every version felt incomplete. Because some things are too important to leave on paper. So I tried singing it instead.";

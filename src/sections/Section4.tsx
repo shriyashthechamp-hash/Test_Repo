@@ -1,21 +1,28 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo, memo } from 'react';
 
 interface AudioVisualizerProps {
   playing: boolean;
 }
 
-function AudioVisualizer({ playing }: AudioVisualizerProps) {
-  const bars = Array.from({ length: 24 });
+const AudioVisualizer = memo(function AudioVisualizer({ playing }: AudioVisualizerProps) {
+  const bars = useMemo(() => {
+    return Array.from({ length: 24 }).map((_, i) => ({
+      height: 10 + Math.random() * 30,
+      opacity: 0.7 + Math.random() * 0.3,
+      speed: 0.4 + (i % 5) * 0.1,
+    }));
+  }, []);
+
   return (
     <div className="flex items-center justify-center gap-0.5" style={{ height: '40px' }}>
-      {bars.map((_, i) => (
+      {bars.map((bar, i) => (
         <div
           key={i}
           className="w-1 rounded-full"
           style={{
-            height: playing ? `${10 + Math.random() * 30}px` : '4px',
-            background: `rgba(245, 200, 66, ${playing ? 0.7 + Math.random() * 0.3 : 0.3})`,
-            animation: playing ? `barPulse ${0.4 + (i % 5) * 0.1}s ease-in-out infinite alternate` : 'none',
+            height: playing ? `${bar.height}px` : '4px',
+            background: `rgba(245, 200, 66, ${playing ? bar.opacity : 0.3})`,
+            animation: playing ? `barPulse ${bar.speed}s ease-in-out infinite alternate` : 'none',
             animationDelay: `${(i * 0.04).toFixed(2)}s`,
             transition: 'height 0.15s ease',
           }}
@@ -23,9 +30,24 @@ function AudioVisualizer({ playing }: AudioVisualizerProps) {
       ))}
     </div>
   );
-}
+});
 
-function SunflowerTurntable({ playing }: { playing: boolean }) {
+const SunflowerTurntable = memo(function SunflowerTurntable({ playing }: { playing: boolean }) {
+  const lines = useMemo(() => {
+    return Array.from({ length: 32 }).map((_, i) => {
+      const angle = (Math.PI * 2 / 32) * i;
+      const r = 128;
+      const len = 8 + Math.random() * 18;
+      const x1 = 140 + Math.cos(angle) * r;
+      const y1 = 140 + Math.sin(angle) * r;
+      const x2 = 140 + Math.cos(angle) * (r + len);
+      const y2 = 140 + Math.sin(angle) * (r + len);
+      const x2_paused = 140 + Math.cos(angle) * (r + 4);
+      const y2_paused = 140 + Math.sin(angle) * (r + 4);
+      return { x1, y1, x2, y2, x2_paused, y2_paused };
+    });
+  }, []);
+
   return (
     <div className="relative flex items-center justify-center" style={{ width: 280, height: 280 }}>
       {/* Outer glow ring */}
@@ -52,24 +74,17 @@ function SunflowerTurntable({ playing }: { playing: boolean }) {
           transition: 'opacity 0.5s ease',
         }}
       >
-        {Array.from({ length: 32 }).map((_, i) => {
-          const angle = (Math.PI * 2 / 32) * i;
-          const r = 128;
-          const len = playing ? 8 + Math.random() * 18 : 4;
-          const x1 = 140 + Math.cos(angle) * r;
-          const y1 = 140 + Math.sin(angle) * r;
-          const x2 = 140 + Math.cos(angle) * (r + len);
-          const y2 = 140 + Math.sin(angle) * (r + len);
-          return (
-            <line
-              key={i}
-              x1={x1} y1={y1} x2={x2} y2={y2}
-              stroke="rgba(245, 200, 66, 0.6)"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          );
-        })}
+        {lines.map((line, i) => (
+          <line
+            key={i}
+            x1={line.x1} y1={line.y1}
+            x2={playing ? line.x2 : line.x2_paused}
+            y2={playing ? line.y2 : line.y2_paused}
+            stroke="rgba(245, 200, 66, 0.6)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        ))}
       </svg>
 
       {/* Main sunflower disc */}
@@ -185,7 +200,7 @@ function SunflowerTurntable({ playing }: { playing: boolean }) {
       </div>
     </div>
   );
-}
+});
 
 export default function Section4() {
   const audioRef = useRef<HTMLAudioElement>(null);

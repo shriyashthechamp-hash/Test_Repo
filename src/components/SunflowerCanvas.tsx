@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import type { EnvState } from '../types';
 
 interface SunflowerData {
@@ -99,10 +99,10 @@ function parseHex(color: string): [number, number, number] | null {
 interface Props {
   env: EnvState;
   act: 1 | 2 | 3;
-  scrollY: number;
+  scrollYRef: MutableRefObject<number>;
 }
 
-export default function SunflowerCanvas({ env, act, scrollY }: Props) {
+export default function SunflowerCanvas({ env, act, scrollYRef }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef({
     bgSunflowers: [] as SunflowerData[],
@@ -115,7 +115,6 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
     currentEnv: env,
     targetEnv: env,
     act,
-    scrollY,
     frameId: 0,
     width: 0,
     height: 0,
@@ -219,9 +218,10 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       s.height = h;
       s.scale = scale;
       
-      const ctx = canvas.getContext('2d');
-      if (ctx && scale !== 1) {
-        ctx.scale(scale, scale);
+      // Cache the context — reused every frame
+      cachedCtx = canvas.getContext('2d');
+      if (cachedCtx && scale !== 1) {
+        cachedCtx.scale(scale, scale);
       }
       
       buildField(w, h);
@@ -273,7 +273,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       ctx.rotate(wind * 0.018 + lookAt * 0.008);
 
       // Rim light for night
-      if (env === 'night') {
+      if (s.currentEnv === 'night') {
         ctx.beginPath();
         ctx.arc(0, 0, sf.size * 1.4, 0, Math.PI * 2);
         ctx.fillStyle = cfg.rimLight;
@@ -289,7 +289,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
         ctx.beginPath();
         ctx.ellipse(sf.size, 0, sf.size * 0.65, sf.size * 0.28, 0, 0, Math.PI * 2);
         ctx.fillStyle = cfg.petalColor;
-        ctx.globalAlpha = env === 'night' ? 0.5 : 0.9;
+        ctx.globalAlpha = s.currentEnv === 'night' ? 0.5 : 0.9;
         ctx.fill();
         ctx.restore();
       }
@@ -302,7 +302,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       ctx.fill();
 
       // Seed pattern on center (golden hour / day)
-      if (env !== 'night' && sf.size > 18) {
+      if (s.currentEnv !== 'night' && sf.size > 18) {
         for (let r = 1; r <= 2; r++) {
           for (let a = 0; a < 8; a++) {
             const ang = (Math.PI * 2 / 8) * a + r * 0.4;
@@ -320,7 +320,7 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       ctx.globalAlpha = 1;
     }
 
-    function drawParticles(ctx: CanvasRenderingContext2D, cfg: EnvConfig) {
+    function drawParticles(ctx: CanvasRenderingContext2D) {
       const w = s.width;
       const h = s.height;
       s.particles.forEach(p => {
@@ -381,12 +381,13 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       });
     }
 
+    let cachedCtx: CanvasRenderingContext2D | null = null;
+
     let envLerpT = 1;
-    let prevEnv = env;
-    let curEnv = env;
+    let prevEnv = stateRef.current.currentEnv;
 
     function animate() {
-      const ctx = canvas.getContext('2d');
+      const ctx = cachedCtx;
       if (!ctx) return;
 
       // Throttle when tab is hidden to save battery
@@ -396,12 +397,10 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       }
 
       s.time += 0.02;
-      const { width: w, height: h } = s;
 
       // Env transition lerp
       if (s.targetEnv !== s.currentEnv) {
         prevEnv = s.currentEnv;
-        curEnv = s.targetEnv;
         s.currentEnv = s.targetEnv;
         envLerpT = 0;
       }
@@ -417,12 +416,12 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       
       // Skip drawing if invisible
       if (actAlpha === 0) {
-        ctx.clearRect(0, 0, w, h);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
         s.frameId = requestAnimationFrame(animate);
         return;
       }
 
-      ctx.clearRect(0, 0, w, h);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.globalAlpha = actAlpha;
 
       // Calculate blended configs once per frame
@@ -434,14 +433,17 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
         petalColor: envLerpT < 1 ? (lerpColor(prevCfg.petalColor, cfg.petalColor, envLerpT) || cfg.petalColor) : cfg.petalColor,
       };
 
+      // Read scroll from ref (avoids React re-render pipeline)
+      const currentScrollY = scrollYRef.current;
+
       // Draw layers: bg, mid, fg directly
-      s.bgSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY));
-      s.midSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY));
-      s.fgSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, s.scrollY));
+      s.bgSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, currentScrollY));
+      s.midSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, currentScrollY));
+      s.fgSunflowers.forEach(sf => drawSunflower(ctx, sf, blendedCfg as EnvConfig, currentScrollY));
 
       // Particles
       if (s.act >= 2) {
-        drawParticles(ctx, cfg);
+        drawParticles(ctx);
       }
 
       ctx.globalAlpha = 1;
@@ -453,8 +455,10 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       stateRef.current.mouse.y = e.clientY;
     };
 
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     const onResize = () => {
-      init();
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => init(), 200);
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -466,8 +470,9 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
       document.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', onResize);
       cancelAnimationFrame(s.frameId);
+      if (resizeTimer) clearTimeout(resizeTimer);
     };
-  }, []);
+  }, [scrollYRef]);
 
   // Update refs when props change without re-mounting
   useEffect(() => {
@@ -477,10 +482,6 @@ export default function SunflowerCanvas({ env, act, scrollY }: Props) {
   useEffect(() => {
     stateRef.current.act = act;
   }, [act]);
-
-  useEffect(() => {
-    stateRef.current.scrollY = scrollY;
-  }, [scrollY]);
 
   return null;
 }

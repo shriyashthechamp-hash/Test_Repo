@@ -16,11 +16,13 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [act, setAct] = useState<Act>(1);
   const [env, setEnv] = useState<EnvState>('golden');
-  const [scrollY, setScrollY] = useState(0);
+  const scrollYRef = useRef(0);
+  const actRef = useRef<Act>(1);
   const [section1Active, setSection1Active] = useState(false);
   const section2Ref = useRef<HTMLElement | null>(null);
   const section3Ref = useRef<HTMLElement | null>(null);
   const isTouchRef = useRef(false);
+  const canvasScrollRef = useRef(0);
 
   useEffect(() => {
     isTouchRef.current = 'ontouchstart' in window;
@@ -32,17 +34,25 @@ export default function App() {
     document.body.classList.add(`env-${env}`);
   }, [env]);
 
-  // Track scroll for canvas parallax
+  // Track scroll for canvas parallax — uses ref to avoid re-renders
   useEffect(() => {
     const onScroll = () => {
-      setScrollY(window.scrollY);
+      // Update ref directly — SunflowerCanvas reads from stateRef.current.scrollY
+      scrollYRef.current = window.scrollY;
+      canvasScrollRef.current = window.scrollY;
 
-      // Act transitions based on scroll
+      // Act transitions based on scroll — only setState when value changes
       const totalH = document.body.scrollHeight - window.innerHeight;
       const pct = window.scrollY / Math.max(totalH, 1);
-      if (pct < 0.25) setAct(1);
-      else if (pct < 0.6) setAct(2);
-      else setAct(3);
+      let newAct: Act;
+      if (pct < 0.25) newAct = 1;
+      else if (pct < 0.6) newAct = 2;
+      else newAct = 3;
+
+      if (newAct !== actRef.current) {
+        actRef.current = newAct;
+        setAct(newAct);
+      }
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
@@ -71,7 +81,7 @@ export default function App() {
       {loading && <LoadingScreen onComplete={handleLoadingComplete} />}
 
       {/* Sunflower canvas engine */}
-      <SunflowerCanvas env={env} act={act} scrollY={scrollY} />
+      <SunflowerCanvas env={env} act={act} scrollYRef={scrollYRef} />
 
       {/* Custom cursor — hide on touch */}
       {!isTouchRef.current && <CustomCursor env={env} />}

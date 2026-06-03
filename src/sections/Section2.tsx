@@ -236,17 +236,37 @@ export default function Section2({ isActive }: Props) {
   const [easterEggVisible, setEasterEggVisible] = useState(false);
 
   useEffect(() => {
+    let rafId: number | null = null;
+    let lastProgress = -1;
+
     const onScroll = () => {
-      const el = sectionRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const sectionHeight = el.offsetHeight - window.innerHeight;
-      const scrolled = -rect.top;
-      const progress = Math.max(0, Math.min(1, scrolled / sectionHeight));
-      setScrollProgress(progress);
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const el = sectionRef.current;
+          if (!el) return;
+          const rect = el.getBoundingClientRect();
+          const sectionHeight = el.offsetHeight - window.innerHeight;
+          if (sectionHeight <= 0) return;
+          const scrolled = -rect.top;
+          const progress = Math.max(0, Math.min(1, scrolled / sectionHeight));
+          
+          // Only update state if change is significant or hit boundary
+          const diff = Math.abs(progress - lastProgress);
+          if (diff > 0.001 || (progress === 0 && lastProgress !== 0) || (progress === 1 && lastProgress !== 1)) {
+            setScrollProgress(progress);
+            lastProgress = progress;
+          }
+        });
+      }
     };
+    onScroll();
+
     window.addEventListener('scroll', onScroll, { passive: true });
-    return () => window.removeEventListener('scroll', onScroll);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
   }, []);
 
   const stemHeight = scrollProgress * 100;
